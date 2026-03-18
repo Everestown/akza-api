@@ -1,0 +1,832 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "AKZA API",
+    "description": "REST API AKZA — коллекции, изделия, варианты, заявки, медиатека и CMS.\n\n**Base URL:** `/api/v1`\n\n**Формат ответа:**\n```json\n{ \"data\": {...} }            // single resource\n{ \"data\": [...], \"meta\": {} } // paginated list\n{ \"error\": { \"code\": \"...\", \"message\": \"...\" } } // error\n```\n\n**Пагинация:** cursor-based (`?cursor=<base64>&limit=20`)\n\n**Все даты:** ISO 8601 UTC\n\n**Аутентификация:** Bearer JWT в заголовке `Authorization`",
+    "version": "1.0.0",
+    "contact": { "name": "AKZA", "url": "https://akza.ru" }
+  },
+  "servers": [
+    { "url": "/api/v1", "description": "Current server" }
+  ],
+  "tags": [
+    { "name": "Auth",        "description": "Аутентификация администраторов" },
+    { "name": "Collections", "description": "Управление коллекциями" },
+    { "name": "Products",    "description": "Управление изделиями" },
+    { "name": "Variants",    "description": "Управление вариантами изделий" },
+    { "name": "Orders",      "description": "Заявки клиентов" },
+    { "name": "Media",       "description": "Медиатека" },
+    { "name": "Site",        "description": "CMS — контент публичного сайта" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code":    { "type": "string", "example": "NOT_FOUND" },
+              "message": { "type": "string", "example": "collection not found" }
+            }
+          }
+        }
+      },
+      "PageMeta": {
+        "type": "object",
+        "properties": {
+          "cursor":   { "type": "string", "nullable": true, "description": "Base64-encoded cursor for next page" },
+          "has_more": { "type": "boolean" },
+          "limit":    { "type": "integer", "example": 20 }
+        }
+      },
+      "AdminInfo": {
+        "type": "object",
+        "properties": {
+          "id":    { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name":  { "type": "string" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email":    { "type": "string", "format": "email", "example": "admin@akza.ru" },
+          "password": { "type": "string", "minLength": 6, "example": "akza2024" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "access_token": { "type": "string" },
+              "admin": { "$ref": "#/components/schemas/AdminInfo" }
+            }
+          }
+        }
+      },
+      "CollectionStatus": {
+        "type": "string",
+        "enum": ["DRAFT", "SCHEDULED", "PUBLISHED", "ARCHIVED"]
+      },
+      "Collection": {
+        "type": "object",
+        "properties": {
+          "id":           { "type": "string", "format": "uuid" },
+          "slug":         { "type": "string", "example": "spring-2026" },
+          "title":        { "type": "string", "example": "Весна 2026" },
+          "description":  { "type": "string", "nullable": true, "maxLength": 150 },
+          "cover_url":    { "type": "string", "nullable": true },
+          "status":       { "$ref": "#/components/schemas/CollectionStatus" },
+          "scheduled_at": { "type": "string", "format": "date-time", "nullable": true },
+          "sort_order":   { "type": "integer" },
+          "created_at":   { "type": "string", "format": "date-time" },
+          "updated_at":   { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateCollectionRequest": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title":        { "type": "string", "minLength": 2, "maxLength": 100, "example": "Весна 2026" },
+          "slug":         { "type": "string", "nullable": true, "description": "Если пустой — генерируется автоматически из title", "example": "spring-2026" },
+          "description":  { "type": "string", "nullable": true, "maxLength": 150 },
+          "scheduled_at": { "type": "string", "description": "ISO 8601 или datetime-local (2026-03-16T12:00)", "nullable": true },
+          "sort_order":   { "type": "integer", "default": 0 }
+        }
+      },
+      "UpdateStatusRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status":       { "$ref": "#/components/schemas/CollectionStatus" },
+          "scheduled_at": { "type": "string", "nullable": true }
+        }
+      },
+      "ReorderRequest": {
+        "type": "object",
+        "required": ["ids"],
+        "properties": {
+          "ids": { "type": "array", "items": { "type": "string", "format": "uuid" }, "minItems": 1 }
+        }
+      },
+      "PresignRequest": {
+        "type": "object",
+        "required": ["filename", "content_type"],
+        "properties": {
+          "filename":     { "type": "string", "example": "cover.jpg" },
+          "content_type": { "type": "string", "example": "image/jpeg" }
+        }
+      },
+      "PresignResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "upload_url": { "type": "string", "description": "Presigned PUT URL (valid 15 min)" },
+              "s3_key":     { "type": "string" }
+            }
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id":              { "type": "string", "format": "uuid" },
+          "collection_id":   { "type": "string", "format": "uuid" },
+          "slug":            { "type": "string" },
+          "title":           { "type": "string" },
+          "description":     { "type": "string", "nullable": true },
+          "characteristics": { "type": "object", "additionalProperties": true },
+          "price":           { "type": "number", "format": "double" },
+          "price_hidden":    { "type": "boolean", "description": "Если true — цена не показывается клиенту" },
+          "cover_url":       { "type": "string", "nullable": true },
+          "sort_order":      { "type": "integer" },
+          "is_published":    { "type": "boolean" },
+          "created_at":      { "type": "string", "format": "date-time" },
+          "updated_at":      { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateProductRequest": {
+        "type": "object",
+        "required": ["collection_id", "title", "price"],
+        "properties": {
+          "collection_id":   { "type": "string", "format": "uuid" },
+          "title":           { "type": "string", "minLength": 2, "maxLength": 100 },
+          "slug":            { "type": "string", "nullable": true },
+          "description":     { "type": "string", "nullable": true },
+          "characteristics": { "type": "object", "additionalProperties": true, "example": {"Материал":"Шёлк","Цвет":"Чёрный"} },
+          "price":           { "type": "number", "minimum": 0.01 },
+          "price_hidden":    { "type": "boolean", "default": false },
+          "sort_order":      { "type": "integer", "default": 0 }
+        }
+      },
+      "Variant": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "string", "format": "uuid" },
+          "product_id":  { "type": "string", "format": "uuid" },
+          "slug":        { "type": "string" },
+          "attributes":  { "type": "object", "additionalProperties": true },
+          "is_published":{ "type": "boolean" },
+          "sort_order":  { "type": "integer" },
+          "images":      { "type": "array", "items": { "$ref": "#/components/schemas/VariantImage" } },
+          "created_at":  { "type": "string", "format": "date-time" },
+          "updated_at":  { "type": "string", "format": "date-time" }
+        }
+      },
+      "VariantImage": {
+        "type": "object",
+        "properties": {
+          "id":         { "type": "string", "format": "uuid" },
+          "url":        { "type": "string" },
+          "s3_key":     { "type": "string" },
+          "sort_order": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "OrderStatus": {
+        "type": "string",
+        "enum": ["NEW", "CONTACTED", "CONFIRMED", "CANCELLED", "COMPLETED"]
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id":                { "type": "string", "format": "uuid" },
+          "variant_id":        { "type": "string", "format": "uuid" },
+          "variant":           { "type": "object", "nullable": true, "properties": { "id":{"type":"string"}, "slug":{"type":"string"} } },
+          "customer_name":     { "type": "string" },
+          "telegram_username": { "type": "string" },
+          "phone":             { "type": "string", "nullable": true },
+          "comment":           { "type": "string", "nullable": true },
+          "status":            { "$ref": "#/components/schemas/OrderStatus" },
+          "tg_notified_at":    { "type": "string", "format": "date-time", "nullable": true },
+          "allowed_next":      { "type": "array", "items": { "$ref": "#/components/schemas/OrderStatus" } },
+          "created_at":        { "type": "string", "format": "date-time" },
+          "updated_at":        { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["variant_id", "customer_name", "telegram_username"],
+        "properties": {
+          "variant_id":        { "type": "string", "format": "uuid" },
+          "customer_name":     { "type": "string", "minLength": 2, "maxLength": 100 },
+          "telegram_username": { "type": "string", "description": "Username без @, 5-32 символа" },
+          "phone":             { "type": "string", "nullable": true },
+          "comment":           { "type": "string", "nullable": true, "maxLength": 150 }
+        }
+      },
+      "MediaAsset": {
+        "type": "object",
+        "properties": {
+          "id":            { "type": "string", "format": "uuid" },
+          "s3_key":        { "type": "string" },
+          "url":           { "type": "string" },
+          "type":          { "type": "string", "enum": ["IMAGE","VIDEO"] },
+          "original_name": { "type": "string", "nullable": true },
+          "size_bytes":    { "type": "integer", "nullable": true },
+          "mime_type":     { "type": "string", "nullable": true },
+          "created_at":    { "type": "string", "format": "date-time" }
+        }
+      },
+      "SitePage": {
+        "type": "object",
+        "properties": {
+          "id":         { "type": "string", "format": "uuid" },
+          "section":    { "type": "string", "enum": ["HERO","ABOUT","CONTACTS","FOOTER"] },
+          "content":    { "type": "object", "additionalProperties": true },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Вход в систему",
+        "description": "Возвращает JWT access token. Используйте токен в заголовке `Authorization: Bearer <token>` для всех admin-эндпоинтов.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Успешный вход", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginResponse" } } } },
+          "401": { "description": "Неверный email или пароль", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } }
+        }
+      }
+    },
+    "/admin/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Информация о текущем администраторе",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/AdminInfo" } } } } } },
+          "401": { "description": "Не авторизован" }
+        }
+      }
+    },
+    "/collections": {
+      "get": {
+        "tags": ["Collections"],
+        "summary": "Список опубликованных коллекций (публичный)",
+        "description": "Возвращает только PUBLISHED или SCHEDULED-коллекции у которых scheduled_at ≤ NOW(). Drop-механика без cron.",
+        "parameters": [
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Cursor для пагинации" },
+          { "name": "limit",  "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список коллекций с метаданными пагинации",
+            "content": { "application/json": { "schema": {
+              "type": "object",
+              "properties": {
+                "data": { "type": "array", "items": { "$ref": "#/components/schemas/Collection" } },
+                "meta": { "$ref": "#/components/schemas/PageMeta" }
+              }
+            } } }
+          }
+        }
+      }
+    },
+    "/collections/{slug}": {
+      "get": {
+        "tags": ["Collections"],
+        "summary": "Коллекция по slug (публичный)",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" }, "example": "spring-2026" }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Collection" } } } } } },
+          "404": { "description": "Не найдено или не опубликовано" }
+        }
+      }
+    },
+    "/collections/{slug}/products": {
+      "get": {
+        "tags": ["Products"],
+        "summary": "Изделия коллекции (публичный)",
+        "parameters": [
+          { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "Опубликованные изделия коллекции", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } }, "meta": { "$ref": "#/components/schemas/PageMeta" } } } } } }
+        }
+      }
+    },
+    "/products/{slug}": {
+      "get": {
+        "tags": ["Products"],
+        "summary": "Изделие по slug + все опубликованные варианты (публичный)",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Изделие с вариантами", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Product" } } } } } },
+          "404": { "description": "Не найдено" }
+        }
+      }
+    },
+    "/products/{slug}/variants": {
+      "get": {
+        "tags": ["Variants"],
+        "summary": "Варианты изделия по slug (публичный)",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Список вариантов", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Variant" } } } } } } }
+        }
+      }
+    },
+    "/variants/{slug}": {
+      "get": {
+        "tags": ["Variants"],
+        "summary": "Вариант по slug (публичный)",
+        "parameters": [{ "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Вариант с галереей", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Variant" } } } } } },
+          "404": { "description": "Не найдено" }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "tags": ["Orders"],
+        "summary": "Создать заявку на изделие (публичный)",
+        "description": "Создаёт заявку и отправляет async Telegram-уведомление администратору с кнопками «Чат с клиентом» и «Открыть изделие».",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Заявка создана", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Order" } } } } } },
+          "404": { "description": "Вариант не найден или не опубликован" },
+          "422": { "description": "Ошибка валидации" }
+        }
+      }
+    },
+    "/site/content/{section}": {
+      "get": {
+        "tags": ["Site"],
+        "summary": "Контент секции публичного сайта",
+        "parameters": [{ "name": "section", "in": "path", "required": true, "schema": { "type": "string", "enum": ["HERO","ABOUT","CONTACTS","FOOTER"] } }],
+        "responses": {
+          "200": { "description": "JSONB-контент секции", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/SitePage" } } } } } }
+        }
+      }
+    },
+    "/admin/collections": {
+      "get": {
+        "tags": ["Collections"],
+        "summary": "Все коллекции (admin)",
+        "description": "Возвращает все коллекции включая DRAFT и ARCHIVED.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": {
+          "200": { "description": "OK" },
+          "401": { "description": "Не авторизован" }
+        }
+      },
+      "post": {
+        "tags": ["Collections"],
+        "summary": "Создать коллекцию (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCollectionRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Коллекция создана" },
+          "409": { "description": "Slug уже занят" },
+          "422": { "description": "Ошибка валидации" }
+        }
+      }
+    },
+    "/admin/collections/{id}": {
+      "get": {
+        "tags": ["Collections"],
+        "summary": "Коллекция по ID (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "OK" },
+          "404": { "description": "Не найдено" }
+        }
+      },
+      "put": {
+        "tags": ["Collections"],
+        "summary": "Обновить коллекцию (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCollectionRequest" } } }
+        },
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Не найдено" } }
+      },
+      "delete": {
+        "tags": ["Collections"],
+        "summary": "Удалить коллекцию — soft delete (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Удалено" }, "404": { "description": "Не найдено" } }
+      }
+    },
+    "/admin/collections/{id}/status": {
+      "patch": {
+        "tags": ["Collections"],
+        "summary": "Изменить статус коллекции (admin)",
+        "description": "FSM переходы:\n- DRAFT → SCHEDULED | PUBLISHED\n- SCHEDULED → DRAFT | PUBLISHED\n- PUBLISHED → ARCHIVED\n- ARCHIVED → DRAFT | PUBLISHED",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateStatusRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Статус обновлён" },
+          "422": { "description": "Переход недопустим (BAD_TRANSITION)" }
+        }
+      }
+    },
+    "/admin/collections/reorder": {
+      "patch": {
+        "tags": ["Collections"],
+        "summary": "Изменить порядок коллекций (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReorderRequest" } } }
+        },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/collections/{id}/cover/presign": {
+      "post": {
+        "tags": ["Collections"],
+        "summary": "Получить presigned URL для загрузки обложки (admin)",
+        "description": "Шаг 1 из 2: получите URL для прямой загрузки файла в S3. Шаг 2: confirm.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignRequest" } } }
+        },
+        "responses": { "200": { "description": "Presigned URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignResponse" } } } } }
+      }
+    },
+    "/admin/collections/{id}/cover/confirm": {
+      "post": {
+        "tags": ["Collections"],
+        "summary": "Подтвердить загрузку обложки (admin)",
+        "description": "Шаг 2 из 2: после успешного PUT в S3 передайте s3_key для сохранения в БД.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["s3_key"], "properties": { "s3_key": { "type": "string" } } } } }
+        },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/products": {
+      "get": {
+        "tags": ["Products"],
+        "summary": "Изделия коллекции (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "collection_id", "in": "query", "required": true, "schema": { "type": "string", "format": "uuid" }, "description": "UUID коллекции" },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "tags": ["Products"],
+        "summary": "Создать изделие (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } }
+        },
+        "responses": { "201": { "description": "Изделие создано" }, "422": { "description": "Ошибка валидации" } }
+      }
+    },
+    "/admin/products/{id}": {
+      "get": {
+        "tags": ["Products"],
+        "summary": "Изделие по ID (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Не найдено" } }
+      },
+      "put": {
+        "tags": ["Products"],
+        "summary": "Обновить изделие (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProductRequest" } } }
+        },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Products"],
+        "summary": "Удалить изделие — soft delete (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Удалено" } }
+      }
+    },
+    "/admin/products/{id}/publish": {
+      "patch": {
+        "tags": ["Products"],
+        "summary": "Опубликовать / скрыть изделие (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "published": { "type": "boolean" } } } } }
+        },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/products/reorder": {
+      "patch": {
+        "tags": ["Products"],
+        "summary": "Изменить порядок изделий (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReorderRequest" } } } },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/products/{id}/cover/presign": {
+      "post": {
+        "tags": ["Products"],
+        "summary": "Presign URL для обложки изделия (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignRequest" } } } },
+        "responses": { "200": { "description": "Presigned URL" } }
+      }
+    },
+    "/admin/products/{id}/cover/confirm": {
+      "post": {
+        "tags": ["Products"],
+        "summary": "Подтвердить обложку изделия (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["s3_key"], "properties": { "s3_key": { "type": "string" } } } } } },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/variants": {
+      "post": {
+        "tags": ["Variants"],
+        "summary": "Создать вариант изделия (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "required": ["product_id", "slug"],
+            "properties": {
+              "product_id":  { "type": "string", "format": "uuid" },
+              "slug":        { "type": "string" },
+              "attributes":  { "type": "object", "additionalProperties": true },
+              "sort_order":  { "type": "integer" }
+            }
+          } } }
+        },
+        "responses": { "201": { "description": "Вариант создан" } }
+      }
+    },
+    "/admin/variants/{id}": {
+      "get": {
+        "tags": ["Variants"],
+        "summary": "Вариант по ID (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "put": {
+        "tags": ["Variants"],
+        "summary": "Обновить вариант (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "attributes": { "type": "object" }, "sort_order": { "type": "integer" } } } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["Variants"],
+        "summary": "Удалить вариант — soft delete (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Удалено" } }
+      }
+    },
+    "/admin/variants/{id}/publish": {
+      "patch": {
+        "tags": ["Variants"],
+        "summary": "Опубликовать / скрыть вариант (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "published": { "type": "boolean" } } } } } },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/variants/{id}/images/presign": {
+      "post": {
+        "tags": ["Variants"],
+        "summary": "Presign URL для изображения варианта (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignRequest" } } } },
+        "responses": { "200": { "description": "Presigned URL" } }
+      }
+    },
+    "/admin/variants/{id}/images/confirm": {
+      "post": {
+        "tags": ["Variants"],
+        "summary": "Подтвердить загрузку изображения (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["s3_key"], "properties": { "s3_key": { "type": "string" }, "original_name": { "type": "string" } } } } } },
+        "responses": { "201": { "description": "Изображение добавлено" } }
+      }
+    },
+    "/admin/variants/{id}/images/{imageId}": {
+      "delete": {
+        "tags": ["Variants"],
+        "summary": "Удалить изображение из галереи (admin)",
+        "description": "Удаляет запись из БД и объект из S3.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "id",      "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "imageId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": { "204": { "description": "Удалено" } }
+      }
+    },
+    "/admin/variants/{id}/images/reorder": {
+      "patch": {
+        "tags": ["Variants"],
+        "summary": "Переупорядочить изображения галереи (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReorderRequest" } } } },
+        "responses": { "204": { "description": "OK" } }
+      }
+    },
+    "/admin/orders": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "Список заявок (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/OrderStatus" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit",  "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "Список заявок с метаданными" } }
+      }
+    },
+    "/admin/orders/{id}": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "Заявка по ID (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Order" } } } } } } }
+      }
+    },
+    "/admin/orders/{id}/status": {
+      "patch": {
+        "tags": ["Orders"],
+        "summary": "Изменить статус заявки (admin)",
+        "description": "FSM переходы:\n- NEW → CONTACTED | CANCELLED\n- CONTACTED → CONFIRMED | CANCELLED\n- CONFIRMED → COMPLETED | CANCELLED",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": { "status": { "$ref": "#/components/schemas/OrderStatus" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Статус обновлён" },
+          "422": { "description": "Недопустимый переход (BAD_TRANSITION)" }
+        }
+      }
+    },
+    "/admin/media/presign": {
+      "post": {
+        "tags": ["Media"],
+        "summary": "Presign URL для медиафайла (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignRequest" } } } },
+        "responses": { "200": { "description": "Presigned PUT URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PresignResponse" } } } } }
+      }
+    },
+    "/admin/media/confirm": {
+      "post": {
+        "tags": ["Media"],
+        "summary": "Подтвердить загрузку медиафайла (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["s3_key", "type"],
+                "properties": {
+                  "s3_key": { "type": "string" },
+                  "type": { "type": "string", "enum": ["IMAGE","VIDEO"] },
+                  "original_name": { "type": "string" },
+                  "size_bytes": { "type": "integer" },
+                  "mime_type": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "MediaAsset сохранён",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/MediaAsset" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/media": {
+      "get": {
+        "tags": ["Media"],
+        "summary": "Медиатека (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "type",   "in": "query", "schema": { "type": "string", "enum": ["IMAGE","VIDEO"] } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit",  "in": "query", "schema": { "type": "integer", "default": 20 } }
+        ],
+        "responses": { "200": { "description": "Список медиафайлов" } }
+      }
+    },
+    "/admin/media/{id}": {
+      "delete": {
+        "tags": ["Media"],
+        "summary": "Удалить медиафайл (admin)",
+        "description": "Удаляет запись из БД и объект из S3.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "204": { "description": "Удалено" } }
+      }
+    },
+    "/admin/site/content": {
+      "get": {
+        "tags": ["Site"],
+        "summary": "Все секции контента сайта (admin)",
+        "security": [{ "BearerAuth": [] }],
+        "responses": { "200": { "description": "Массив секций HERO, ABOUT, CONTACTS, FOOTER" } }
+      }
+    },
+    "/admin/site/content/{section}": {
+      "put": {
+        "tags": ["Site"],
+        "summary": "Обновить контент секции (admin)",
+        "description": "Принимает произвольный JSON объект как контент секции.",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "section", "in": "path", "required": true, "schema": { "type": "string", "enum": ["HERO","ABOUT","CONTACTS","FOOTER"] } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object",
+            "properties": { "content": { "type": "object", "additionalProperties": true } },
+            "example": { "content": { "title": "AKZA", "subtitle": "Видеть искусство в каждом стежке" } }
+          } } }
+        },
+        "responses": { "200": { "description": "Контент обновлён" } }
+      }
+    }
+  }
+}
