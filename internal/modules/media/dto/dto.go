@@ -24,7 +24,7 @@ type ConfirmRequest struct {
 }
 
 type MediaResponse struct {
-	ID           string           `json:"id"`
+	ID           int64            `json:"id"`
 	S3Key        string           `json:"s3_key"`
 	URL          string           `json:"url"`
 	Type         domain.MediaType `json:"type"`

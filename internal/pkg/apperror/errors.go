@@ -45,3 +45,8 @@ func NotFound(resource string) *AppError {
 func Conflict(msg string) *AppError {
 	return &AppError{Code: "CONFLICT", HTTPStatus: 409, Message: msg}
 }
+
+// Unauthorized builds a 401 error.
+func Unauthorized(msg string) *AppError {
+	return &AppError{Code: "UNAUTHORIZED", HTTPStatus: 401, Message: msg}
+}

@@ -3,7 +3,7 @@ package domain
 import "time"
 
 type Admin struct {
-	ID           string    `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	ID           int64     `gorm:"primaryKey;autoIncrement"`
 	Email        string    `gorm:"uniqueIndex;not null"`
 	PasswordHash string    `gorm:"not null"`
 	Name         string    `gorm:"not null"`

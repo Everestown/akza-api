@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+
 	"github.com/akza/akza-api/internal/modules/media/dto"
 	"github.com/akza/akza-api/internal/pkg/apperror"
+	"github.com/akza/akza-api/internal/pkg/httputil"
 	"github.com/akza/akza-api/internal/pkg/middleware"
 	"github.com/akza/akza-api/internal/pkg/pagination"
 	"github.com/gin-gonic/gin"
@@ -12,9 +14,9 @@ import (
 
 type svc interface {
 	List(ctx context.Context, mediaType string, p pagination.CursorPage) (pagination.PageResult[dto.MediaResponse], error)
-	Presign(ctx context.Context, adminID string, req dto.PresignRequest) (*dto.PresignResponse, error)
-	Confirm(ctx context.Context, adminID string, req dto.ConfirmRequest) (*dto.MediaResponse, error)
-	Delete(ctx context.Context, id string) error
+	Presign(ctx context.Context, req dto.PresignRequest, adminID string) (*dto.PresignResponse, error)
+	Confirm(ctx context.Context, req dto.ConfirmRequest, adminID string) (*dto.MediaResponse, error)
+	Delete(ctx context.Context, id int64) error
 }
 
 type Handler struct{ svc svc }
@@ -34,7 +36,7 @@ func (h *Handler) List(c *gin.Context) {
 func (h *Handler) Presign(c *gin.Context) {
 	var req dto.PresignRequest
 	if err := c.ShouldBindJSON(&req); err != nil { middleware.Err(c, ve(err)); return }
-	resp, err := h.svc.Presign(c.Request.Context(), c.GetString(middleware.AdminIDKey), req)
+	resp, err := h.svc.Presign(c.Request.Context(), req, c.GetString(middleware.AdminIDKey))
 	if err != nil { middleware.Err(c, err); return }
 	middleware.OK(c, resp)
 }
@@ -42,12 +44,13 @@ func (h *Handler) Presign(c *gin.Context) {
 func (h *Handler) Confirm(c *gin.Context) {
 	var req dto.ConfirmRequest
 	if err := c.ShouldBindJSON(&req); err != nil { middleware.Err(c, ve(err)); return }
-	asset, err := h.svc.Confirm(c.Request.Context(), c.GetString(middleware.AdminIDKey), req)
+	asset, err := h.svc.Confirm(c.Request.Context(), req, c.GetString(middleware.AdminIDKey))
 	if err != nil { middleware.Err(c, err); return }
 	middleware.Created(c, asset)
 }
 
 func (h *Handler) Delete(c *gin.Context) {
-	if err := h.svc.Delete(c.Request.Context(), c.Param("id")); err != nil { middleware.Err(c, err); return }
+	id, ok := httputil.ParseID(c); if !ok { return }
+	if err := h.svc.Delete(c.Request.Context(), id); err != nil { middleware.Err(c, err); return }
 	middleware.NoContent(c)
 }

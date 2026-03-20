@@ -24,7 +24,7 @@ func (r *Repository) GetBySection(ctx context.Context, section domain.PageSectio
 	return &p, err
 }
 
-func (r *Repository) Upsert(ctx context.Context, section domain.PageSection, content domain.JSONB, adminID string) (*domain.SitePage, error) {
+func (r *Repository) Upsert(ctx context.Context, section domain.PageSection, content domain.JSONB, adminID int64) (*domain.SitePage, error) {
 	var p domain.SitePage
 	if err := r.db.WithContext(ctx).Where("section = ?", section).First(&p).Error; err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) { return nil, err }

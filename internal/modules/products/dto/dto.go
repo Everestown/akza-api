@@ -6,7 +6,7 @@ import (
 )
 
 type CreateProductRequest struct {
-	CollectionID    string       `json:"collection_id"    binding:"required,uuid"`
+	CollectionID    int64        `json:"collection_id"    binding:"required"`
 	Title           string       `json:"title"            binding:"required,min=2,max=100"`
 	Slug            string       `json:"slug"             binding:"omitempty,slug"`
 	Description     *string      `json:"description"`
@@ -26,7 +26,7 @@ type UpdateProductRequest struct {
 }
 
 type ReorderRequest struct {
-	IDs []string `json:"ids" binding:"required,min=1"`
+	IDs []int64 `json:"ids" binding:"required,min=1"`
 }
 
 type PresignRequest struct {
@@ -40,8 +40,8 @@ type PresignResponse struct {
 }
 
 type ProductResponse struct {
-	ID              string       `json:"id"`
-	CollectionID    string       `json:"collection_id"`
+	ID              int64        `json:"id"`
+	CollectionID    int64        `json:"collection_id"`
 	Slug            string       `json:"slug"`
 	Title           string       `json:"title"`
 	Description     *string      `json:"description"`
@@ -63,19 +63,4 @@ func FromDomain(p *domain.Product) ProductResponse {
 		CoverURL: p.CoverURL, SortOrder: p.SortOrder, IsPublished: p.IsPublished,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
-}
-
-// ProductVariantShort is a minimal variant preview on product page.
-type ProductVariantShort struct {
-	ID          string            `json:"id"`
-	Slug        string            `json:"slug"`
-	Attributes  domain.JSONB      `json:"attributes"`
-	IsPublished bool              `json:"is_published"`
-	CoverURL    *string           `json:"cover_url"` // first image URL
-}
-
-// ProductWithVariants is used for public product detail page.
-type ProductWithVariants struct {
-	ProductResponse
-	Variants []ProductVariantShort `json:"variants"`
 }

@@ -16,10 +16,13 @@ func (m *Module) Init(deps *module.Deps) error {
 	return nil
 }
 func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
+	// Public
 	public.GET("/variants/:slug", m.handler.GetBySlug)
 	public.GET("/products/:slug/variants", m.handler.ListByProduct)
 
+	// Admin
 	v := admin.Group("/variants")
+	v.GET("", m.handler.ListByProductAdmin)   // GET /admin/variants?product_id=123
 	v.POST("", m.handler.Create)
 	v.GET("/:id", m.handler.GetByID)
 	v.PUT("/:id", m.handler.Update)

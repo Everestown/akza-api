@@ -3,7 +3,7 @@ package domain
 import "time"
 
 type Collection struct {
-	ID          string           `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	ID          int64            `gorm:"primaryKey;autoIncrement"`
 	Slug        string           `gorm:"uniqueIndex;not null"`
 	Title       string           `gorm:"not null"`
 	Description *string
@@ -31,7 +31,12 @@ func (c *Collection) IsVisible() bool {
 	return false
 }
 
-// CanChangeStatus — fixes: ARCHIVED can now return to DRAFT or PUBLISHED.
+// IsScheduledAndPending returns true if the collection is scheduled but not yet due.
+// Used by the public API to show a teaser without revealing content.
+func (c *Collection) IsScheduledAndPending() bool {
+	return c.Status == CollectionScheduled && c.ScheduledAt != nil && c.ScheduledAt.After(time.Now())
+}
+
 func (c *Collection) CanChangeStatus(next CollectionStatus) bool {
 	switch c.Status {
 	case CollectionDraft:
@@ -41,7 +46,6 @@ func (c *Collection) CanChangeStatus(next CollectionStatus) bool {
 	case CollectionPublished:
 		return next == CollectionArchived
 	case CollectionArchived:
-		// Allow un-archiving
 		return next == CollectionDraft || next == CollectionPublished
 	}
 	return false

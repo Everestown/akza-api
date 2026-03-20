@@ -1,6 +1,5 @@
 package domain
 
-// CollectionStatus represents the publication state of a collection.
 type CollectionStatus string
 
 const (
@@ -18,7 +17,6 @@ func (s CollectionStatus) IsValid() bool {
 	return false
 }
 
-// OrderStatus represents the lifecycle of a customer order.
 type OrderStatus string
 
 const (
@@ -37,7 +35,6 @@ func (s OrderStatus) IsValid() bool {
 	return false
 }
 
-// MediaType distinguishes uploaded file kinds.
 type MediaType string
 
 const (
@@ -45,11 +42,8 @@ const (
 	MediaVideo MediaType = "VIDEO"
 )
 
-func (t MediaType) IsValid() bool {
-	return t == MediaImage || t == MediaVideo
-}
+func (t MediaType) IsValid() bool { return t == MediaImage || t == MediaVideo }
 
-// PageSection identifies content sections of the public site.
 type PageSection string
 
 const (
@@ -57,11 +51,12 @@ const (
 	SectionAbout    PageSection = "ABOUT"
 	SectionContacts PageSection = "CONTACTS"
 	SectionFooter   PageSection = "FOOTER"
+	SectionHeader   PageSection = "HEADER"
 )
 
 func (s PageSection) IsValid() bool {
 	switch s {
-	case SectionHero, SectionAbout, SectionContacts, SectionFooter:
+	case SectionHero, SectionAbout, SectionContacts, SectionFooter, SectionHeader:
 		return true
 	}
 	return false

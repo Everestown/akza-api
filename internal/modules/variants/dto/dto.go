@@ -6,7 +6,7 @@ import (
 )
 
 type CreateVariantRequest struct {
-	ProductID  string       `json:"product_id"  binding:"required,uuid"`
+	ProductID  int64        `json:"product_id"  binding:"required"`
 	Slug       string       `json:"slug"        binding:"omitempty,slug"`
 	Attributes domain.JSONB `json:"attributes"`
 	SortOrder  int          `json:"sort_order"`
@@ -17,18 +17,13 @@ type UpdateVariantRequest struct {
 	SortOrder  int          `json:"sort_order"`
 }
 
-type PresignImageRequest struct {
-	ContentType string `json:"content_type" binding:"required"`
-	Filename    string `json:"filename"     binding:"required"`
-}
-
 type ConfirmImageRequest struct {
-	S3Key        string `json:"s3_key"         binding:"required"`
+	S3Key        string `json:"s3_key"        binding:"required"`
 	OriginalName string `json:"original_name"`
 }
 
 type ReorderImagesRequest struct {
-	IDs []string `json:"ids" binding:"required,min=1"`
+	IDs []int64 `json:"ids" binding:"required,min=1"`
 }
 
 type PresignResponse struct {
@@ -37,7 +32,7 @@ type PresignResponse struct {
 }
 
 type ImageResponse struct {
-	ID        string    `json:"id"`
+	ID        int64     `json:"id"`
 	URL       string    `json:"url"`
 	S3Key     string    `json:"s3_key"`
 	SortOrder int       `json:"sort_order"`
@@ -45,22 +40,24 @@ type ImageResponse struct {
 }
 
 type VariantResponse struct {
-	ID          string        `json:"id"`
-	ProductID   string        `json:"product_id"`
-	Slug        string        `json:"slug"`
-	Attributes  domain.JSONB  `json:"attributes"`
-	IsPublished bool          `json:"is_published"`
-	SortOrder   int           `json:"sort_order"`
+	ID          int64        `json:"id"`
+	ProductID   int64        `json:"product_id"`
+	Slug        string       `json:"slug"`
+	Attributes  domain.JSONB `json:"attributes"`
+	IsPublished bool         `json:"is_published"`
+	SortOrder   int          `json:"sort_order"`
 	Images      []ImageResponse `json:"images"`
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
+
+func imageFromDomain(img *domain.VariantImage) ImageResponse {
+	return ImageResponse{ID: img.ID, URL: img.URL, S3Key: img.S3Key, SortOrder: img.SortOrder, CreatedAt: img.CreatedAt}
 }
 
 func FromDomain(v *domain.ProductVariant) VariantResponse {
 	images := make([]ImageResponse, len(v.Images))
-	for i, img := range v.Images {
-		images[i] = ImageResponse{ID: img.ID, URL: img.URL, S3Key: img.S3Key, SortOrder: img.SortOrder, CreatedAt: img.CreatedAt}
-	}
+	for i, img := range v.Images { images[i] = imageFromDomain(&img) }
 	return VariantResponse{
 		ID: v.ID, ProductID: v.ProductID, Slug: v.Slug, Attributes: v.Attributes,
 		IsPublished: v.IsPublished, SortOrder: v.SortOrder, Images: images,

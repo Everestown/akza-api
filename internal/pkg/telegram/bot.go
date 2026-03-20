@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// Bot sends notifications to a Telegram chat via Bot API.
 type Bot struct {
 	token      string
 	chatID     string
@@ -28,15 +27,12 @@ func New(token, chatID string, log *zap.Logger) *Bot {
 	}
 }
 
-// IsConfigured returns true if the bot token is set.
-func (b *Bot) IsConfigured() bool {
-	return b.token != "" && b.chatID != ""
-}
+func (b *Bot) IsConfigured() bool { return b.token != "" && b.chatID != "" }
 
 type sendMessagePayload struct {
-	ChatID      string        `json:"chat_id"`
-	Text        string        `json:"text"`
-	ParseMode   string        `json:"parse_mode"`
+	ChatID      string          `json:"chat_id"`
+	Text        string          `json:"text"`
+	ParseMode   string          `json:"parse_mode"`
 	ReplyMarkup *inlineKeyboard `json:"reply_markup,omitempty"`
 }
 
@@ -49,16 +45,12 @@ type inlineButton struct {
 	URL  string `json:"url"`
 }
 
-// SendOrderNotification sends an async Telegram notification for a new order.
-// Silent fail: errors are logged but never returned.
 func (b *Bot) SendOrderNotification(order *domain.Order, variant *domain.ProductVariant, siteBase string) {
-	if !b.IsConfigured() {
-		return
-	}
+	if !b.IsConfigured() { return }
 	go func() {
 		if err := b.sendOrder(order, variant, siteBase); err != nil {
 			b.log.Error("telegram notify failed",
-				zap.String("order_id", order.ID),
+				zap.Int64("order_id", order.ID),
 				zap.Error(err),
 			)
 		}
@@ -67,48 +59,33 @@ func (b *Bot) SendOrderNotification(order *domain.Order, variant *domain.Product
 
 func (b *Bot) sendOrder(order *domain.Order, variant *domain.ProductVariant, siteBase string) error {
 	phone := ""
-	if order.Phone != nil {
-		phone = "  📞 " + *order.Phone
-	}
+	if order.Phone != nil { phone = "  📞 " + *order.Phone }
 	comment := ""
-	if order.Comment != nil && *order.Comment != "" {
-		comment = "\n💬 " + *order.Comment
-	}
+	if order.Comment != nil && *order.Comment != "" { comment = "\n💬 " + *order.Comment }
 
 	text := fmt.Sprintf(
-		"🛍 <b>Новая заявка</b>\n\n"+
+		"🛍 <b>Новая заявка #%d</b>\n\n"+
 			"Изделие: <code>%s</code>\n"+
 			"Клиент: <b>%s</b>  @%s%s%s",
-		variant.Slug,
-		order.CustomerName,
-		order.TelegramUsername,
-		phone,
-		comment,
+		order.ID, variant.Slug,
+		order.CustomerName, order.TelegramUsername, phone, comment,
 	)
 
 	payload := sendMessagePayload{
-		ChatID:    b.chatID,
-		Text:      text,
-		ParseMode: "HTML",
+		ChatID: b.chatID, Text: text, ParseMode: "HTML",
 		ReplyMarkup: &inlineKeyboard{
-			InlineKeyboard: [][]inlineButton{
-				{
-					{Text: "💬 Чат с клиентом", URL: "https://t.me/" + order.TelegramUsername},
-					{Text: "🔗 Открыть изделие", URL: siteBase + "/variants/" + variant.Slug},
-				},
-			},
+			InlineKeyboard: [][]inlineButton{{
+				{Text: "💬 Чат с клиентом", URL: "https://t.me/" + order.TelegramUsername},
+				{Text: "🔗 Открыть изделие", URL: siteBase + "/variants/" + variant.Slug},
+			}},
 		},
 	}
 
 	body, _ := json.Marshal(payload)
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.token)
 	resp, err := b.httpClient.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("telegram API returned %d", resp.StatusCode)
-	}
+	if resp.StatusCode != http.StatusOK { return fmt.Errorf("telegram API returned %d", resp.StatusCode) }
 	return nil
 }

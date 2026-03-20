@@ -3,8 +3,8 @@ package domain
 import "time"
 
 type ProductVariant struct {
-	ID          string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	ProductID   string     `gorm:"not null"`
+	ID          int64      `gorm:"primaryKey;autoIncrement"`
+	ProductID   int64      `gorm:"not null"`
 	Slug        string     `gorm:"uniqueIndex;not null"`
 	Attributes  JSONB      `gorm:"type:jsonb;not null;default:'{}'"`
 	IsPublished bool       `gorm:"not null;default:false"`
@@ -13,13 +13,10 @@ type ProductVariant struct {
 	UpdatedAt   time.Time  `gorm:"not null;default:now()"`
 	DeletedAt   *time.Time `gorm:"index"`
 
-	Product Product       `gorm:"foreignKey:ProductID"`
+	Product Product        `gorm:"foreignKey:ProductID"`
 	Images  []VariantImage `gorm:"foreignKey:VariantID"`
 }
 
 func (ProductVariant) TableName() string { return "product_variants" }
 
-// IsPublishable checks if variant has at least one image (cover).
-func (v *ProductVariant) IsPublishable() bool {
-	return len(v.Images) > 0
-}
+func (v *ProductVariant) IsPublishable() bool { return len(v.Images) > 0 }

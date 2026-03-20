@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+
 	"github.com/akza/akza-api/internal/modules/orders/dto"
 	"github.com/akza/akza-api/internal/pkg/apperror"
+	"github.com/akza/akza-api/internal/pkg/httputil"
 	"github.com/akza/akza-api/internal/pkg/middleware"
 	"github.com/akza/akza-api/internal/pkg/pagination"
 	"github.com/gin-gonic/gin"
@@ -11,10 +13,10 @@ import (
 )
 
 type svc interface {
-	List(ctx context.Context, q dto.ListOrdersQuery) (pagination.PageResult[dto.OrderResponse], error)
-	GetByID(ctx context.Context, id string) (*dto.OrderResponse, error)
+	List(ctx context.Context, status string, p pagination.CursorPage) (pagination.PageResult[dto.OrderResponse], error)
+	GetByID(ctx context.Context, id int64) (*dto.OrderResponse, error)
 	Create(ctx context.Context, req dto.CreateOrderRequest) (*dto.OrderResponse, error)
-	UpdateStatus(ctx context.Context, id string, req dto.UpdateStatusRequest) (*dto.OrderResponse, error)
+	UpdateStatus(ctx context.Context, id int64, req dto.UpdateStatusRequest) (*dto.OrderResponse, error)
 }
 
 type Handler struct{ svc svc }
@@ -25,14 +27,15 @@ func ve(err error) error {
 }
 
 func (h *Handler) List(c *gin.Context) {
-	var q dto.ListOrdersQuery; _ = c.ShouldBindQuery(&q)
-	result, err := h.svc.List(c.Request.Context(), q)
+	var p pagination.CursorPage; _ = c.ShouldBindQuery(&p)
+	result, err := h.svc.List(c.Request.Context(), c.Query("status"), p)
 	if err != nil { middleware.Err(c, err); return }
 	middleware.Paginated(c, result.Data, result.Cursor, result.HasMore, result.Limit)
 }
 
 func (h *Handler) GetByID(c *gin.Context) {
-	o, err := h.svc.GetByID(c.Request.Context(), c.Param("id"))
+	id, ok := httputil.ParseID(c); if !ok { return }
+	o, err := h.svc.GetByID(c.Request.Context(), id)
 	if err != nil { middleware.Err(c, err); return }
 	middleware.OK(c, o)
 }
@@ -46,9 +49,10 @@ func (h *Handler) Create(c *gin.Context) {
 }
 
 func (h *Handler) UpdateStatus(c *gin.Context) {
+	id, ok := httputil.ParseID(c); if !ok { return }
 	var req dto.UpdateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil { middleware.Err(c, ve(err)); return }
-	o, err := h.svc.UpdateStatus(c.Request.Context(), c.Param("id"), req)
+	o, err := h.svc.UpdateStatus(c.Request.Context(), id, req)
 	if err != nil { middleware.Err(c, err); return }
 	middleware.OK(c, o)
 }

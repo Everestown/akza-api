@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/akza/akza-api/internal/domain"
 	"github.com/akza/akza-api/internal/modules/site/dto"
@@ -11,7 +12,7 @@ import (
 type repo interface {
 	GetAll(ctx context.Context) ([]domain.SitePage, error)
 	GetBySection(ctx context.Context, section domain.PageSection) (*domain.SitePage, error)
-	Upsert(ctx context.Context, section domain.PageSection, content domain.JSONB, adminID string) (*domain.SitePage, error)
+	Upsert(ctx context.Context, section domain.PageSection, content domain.JSONB, adminID int64) (*domain.SitePage, error)
 }
 
 type Service struct{ repo repo }
@@ -33,9 +34,10 @@ func (s *Service) GetBySection(ctx context.Context, section string) (*dto.SitePa
 	resp := dto.FromDomain(p); return &resp, nil
 }
 
-func (s *Service) UpdateSection(ctx context.Context, section, adminID string, req dto.UpdateContentRequest) (*dto.SitePageResponse, error) {
+func (s *Service) UpdateSection(ctx context.Context, section, adminIDStr string, req dto.UpdateContentRequest) (*dto.SitePageResponse, error) {
 	sec := domain.PageSection(section)
 	if !sec.IsValid() { return nil, apperror.Validation("invalid section") }
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
 	p, err := s.repo.Upsert(ctx, sec, req.Content, adminID)
 	if err != nil { return nil, err }
 	resp := dto.FromDomain(p); return &resp, nil

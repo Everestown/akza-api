@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	password := "akza2024"
+	password := "akza2026"
 	if len(os.Args) > 1 {
 		password = os.Args[1]
 	}

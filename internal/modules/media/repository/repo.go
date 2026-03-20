@@ -18,13 +18,14 @@ func (r *Repository) List(ctx context.Context, mediaType string, p pagination.Cu
 	q := r.db.WithContext(ctx).Order("created_at DESC").Limit(limit + 1)
 	if mediaType != "" { q = q.Where("type = ?", mediaType) }
 	if p.Cursor != "" {
-		if _, createdAt, err := pagination.DecodeCursor(p.Cursor); err == nil { q = q.Where("created_at < ?", createdAt) }
+		id, createdAt, err := pagination.DecodeCursor(p.Cursor)
+		if err == nil { q = q.Where("(created_at < ? OR (created_at = ? AND id < ?))", createdAt, createdAt, id) }
 	}
 	var items []domain.MediaAsset
 	return items, q.Find(&items).Error
 }
 
-func (r *Repository) FindByID(ctx context.Context, id string) (*domain.MediaAsset, error) {
+func (r *Repository) FindByID(ctx context.Context, id int64) (*domain.MediaAsset, error) {
 	var a domain.MediaAsset
 	err := r.db.WithContext(ctx).Where("id = ?", id).First(&a).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) { return nil, apperror.NotFound("media asset") }
@@ -32,4 +33,7 @@ func (r *Repository) FindByID(ctx context.Context, id string) (*domain.MediaAsse
 }
 
 func (r *Repository) Create(ctx context.Context, a *domain.MediaAsset) error { return r.db.WithContext(ctx).Create(a).Error }
-func (r *Repository) Delete(ctx context.Context, id string) error { return r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.MediaAsset{}).Error }
+
+func (r *Repository) Delete(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Delete(&domain.MediaAsset{}, id).Error
+}

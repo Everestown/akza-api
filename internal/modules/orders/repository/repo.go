@@ -13,25 +13,26 @@ import (
 type Repository struct{ db *gorm.DB }
 func New(db *gorm.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) List(ctx context.Context, status string, p pagination.CursorPage) ([]domain.Order, error) {
+func (r *Repository) List(ctx context.Context, statusFilter string, p pagination.CursorPage) ([]domain.Order, error) {
 	limit := p.GetLimit()
 	q := r.db.WithContext(ctx).Preload("Variant").Order("created_at DESC").Limit(limit + 1)
-	if status != "" { q = q.Where("status = ?", status) }
+	if statusFilter != "" { q = q.Where("status = ?", statusFilter) }
 	if p.Cursor != "" {
-		if _, createdAt, err := pagination.DecodeCursor(p.Cursor); err == nil { q = q.Where("created_at < ?", createdAt) }
+		id, createdAt, err := pagination.DecodeCursor(p.Cursor)
+		if err == nil { q = q.Where("(created_at < ? OR (created_at = ? AND id < ?))", createdAt, createdAt, id) }
 	}
 	var items []domain.Order
 	return items, q.Find(&items).Error
 }
 
-func (r *Repository) FindByID(ctx context.Context, id string) (*domain.Order, error) {
+func (r *Repository) FindByID(ctx context.Context, id int64) (*domain.Order, error) {
 	var o domain.Order
 	err := r.db.WithContext(ctx).Preload("Variant").Where("id = ?", id).First(&o).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) { return nil, apperror.NotFound("order") }
 	return &o, err
 }
 
-func (r *Repository) FindVariant(ctx context.Context, variantID string) (*domain.ProductVariant, error) {
+func (r *Repository) FindVariant(ctx context.Context, variantID int64) (*domain.ProductVariant, error) {
 	var v domain.ProductVariant
 	err := r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL AND is_published = true", variantID).First(&v).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) { return nil, apperror.NotFound("variant") }
@@ -39,12 +40,4 @@ func (r *Repository) FindVariant(ctx context.Context, variantID string) (*domain
 }
 
 func (r *Repository) Create(ctx context.Context, o *domain.Order) error { return r.db.WithContext(ctx).Create(o).Error }
-
-func (r *Repository) UpdateStatus(ctx context.Context, id string, status domain.OrderStatus) error {
-	return r.db.WithContext(ctx).Model(&domain.Order{}).Where("id = ?", id).Update("status", status).Error
-}
-
-func (r *Repository) SetTgNotified(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Model(&domain.Order{}).Where("id = ?", id).
-		UpdateColumn("tg_notified_at", gorm.Expr("NOW()")).Error
-}
+func (r *Repository) Update(ctx context.Context, o *domain.Order) error { return r.db.WithContext(ctx).Save(o).Error }

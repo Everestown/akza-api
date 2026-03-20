@@ -19,19 +19,16 @@ func (j *JSONB) Scan(value interface{}) error {
 	if value == nil { *j = JSONB{}; return nil }
 	var bytes []byte
 	switch v := value.(type) {
-	case []byte:
-		bytes = v
-	case string:
-		bytes = []byte(v)
-	default:
-		return fmt.Errorf("JSONB: cannot scan type %T", value)
+	case []byte: bytes = v
+	case string: bytes = []byte(v)
+	default:     return fmt.Errorf("JSONB: cannot scan type %T", value)
 	}
 	return json.Unmarshal(bytes, j)
 }
 
 type Product struct {
-	ID              string     `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
-	CollectionID    string     `gorm:"not null"`
+	ID              int64      `gorm:"primaryKey;autoIncrement"`
+	CollectionID    int64      `gorm:"not null"`
 	Slug            string     `gorm:"uniqueIndex;not null"`
 	Title           string     `gorm:"not null"`
 	Description     *string
@@ -54,9 +51,7 @@ func (Product) TableName() string { return "products" }
 
 func (p *Product) IsPublishable() bool {
 	for _, v := range p.Variants {
-		if v.IsPublished && v.DeletedAt == nil {
-			return true
-		}
+		if v.IsPublished && v.DeletedAt == nil { return true }
 	}
 	return false
 }
