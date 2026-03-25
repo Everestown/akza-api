@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/akza/akza-api/internal/domain"
 	"github.com/akza/akza-api/internal/modules/variants/dto"
@@ -11,7 +12,11 @@ import (
 	"github.com/akza/akza-api/internal/pkg/storage"
 )
 
-const maxGalleryItems = 12
+// Gallery constraints
+const (
+	maxGalleryItems = 12 // maximum images INCLUDING cover (first image = cover)
+	maxVideos       = 1  // only 1 video allowed per variant gallery
+)
 
 type repo interface {
 	ListByProduct(ctx context.Context, productID int64, onlyPublished bool) ([]domain.ProductVariant, error)
@@ -28,6 +33,7 @@ type repo interface {
 	DeleteImage(ctx context.Context, id int64) error
 	ReorderImages(ctx context.Context, ids []int64) error
 	CountImages(ctx context.Context, variantID int64) (int64, error)
+	CountVideos(ctx context.Context, variantID int64) (int64, error)
 }
 
 type Service struct{ repo repo; s3 *storage.Client }
@@ -64,11 +70,16 @@ func (s *Service) GetByIDAdmin(ctx context.Context, id int64) (*dto.VariantRespo
 func (s *Service) Create(ctx context.Context, req dto.CreateVariantRequest) (*dto.VariantResponse, error) {
 	sl := req.Slug
 	if sl == "" {
-		sl = slugpkg.GenerateUnique(fmt.Sprintf("variant-%d", req.ProductID), func(c string) bool { return s.repo.SlugExists(ctx, c) })
+		base := req.Name
+		if base == "" { base = fmt.Sprintf("variant-%d", req.ProductID) }
+		sl = slugpkg.GenerateUnique(base, func(c string) bool { return s.repo.SlugExists(ctx, c) })
 	} else if s.repo.SlugExists(ctx, sl) {
 		return nil, apperror.Conflict(fmt.Sprintf("slug %q already in use", sl))
 	}
-	v := &domain.ProductVariant{ProductID: req.ProductID, Slug: sl, Attributes: req.Attributes, SortOrder: req.SortOrder}
+	v := &domain.ProductVariant{
+		ProductID: req.ProductID, Name: req.Name,
+		Slug: sl, Attributes: req.Attributes, SortOrder: req.SortOrder,
+	}
 	if err := s.repo.Create(ctx, v); err != nil { return nil, err }
 	resp := dto.FromDomain(v); return &resp, nil
 }
@@ -76,7 +87,9 @@ func (s *Service) Create(ctx context.Context, req dto.CreateVariantRequest) (*dt
 func (s *Service) Update(ctx context.Context, id int64, req dto.UpdateVariantRequest) (*dto.VariantResponse, error) {
 	v, err := s.repo.FindByID(ctx, id)
 	if err != nil { return nil, err }
-	v.Attributes = req.Attributes; v.SortOrder = req.SortOrder
+	v.Name = req.Name
+	v.Attributes = req.Attributes
+	v.SortOrder = req.SortOrder
 	if err = s.repo.Update(ctx, v); err != nil { return nil, err }
 	resp := dto.FromDomain(v); return &resp, nil
 }
@@ -90,13 +103,41 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.SoftDelete(ctx, id)
 }
 
+// detectMediaType infers image/video from content-type or filename
+func detectMediaType(ct, filename string) domain.VariantMediaType {
+	ctLower := strings.ToLower(ct)
+	if strings.HasPrefix(ctLower, "video/") { return domain.VariantMediaVideo }
+	ext := strings.ToLower(filename)
+	if strings.HasSuffix(ext, ".mp4") || strings.HasSuffix(ext, ".webm") || strings.HasSuffix(ext, ".mov") {
+		return domain.VariantMediaVideo
+	}
+	return domain.VariantMediaImage
+}
+
 func (s *Service) PresignImage(ctx context.Context, id int64, filename, ct string) (*dto.PresignResponse, error) {
 	if s.s3 == nil { return nil, apperror.Newf("S3_DISABLED", 503, "S3 not configured") }
+
+	// Detect media type upfront from content-type/filename
+	mediaType := detectMediaType(ct, filename)
+
+	// Check total count (max 12 items)
 	count, err := s.repo.CountImages(ctx, id)
 	if err != nil { return nil, err }
 	if count >= maxGalleryItems {
-		return nil, apperror.Newf("GALLERY_FULL", 422, fmt.Sprintf("maximum %d images per variant reached", maxGalleryItems))
+		return nil, apperror.Newf("GALLERY_FULL", 422,
+			fmt.Sprintf("максимум %d элементов в галерее", maxGalleryItems))
 	}
+
+	// Check video limit (max 1)
+	if mediaType == domain.VariantMediaVideo {
+		videoCount, err := s.repo.CountVideos(ctx, id)
+		if err != nil { return nil, err }
+		if videoCount >= maxVideos {
+			return nil, apperror.Newf("VIDEO_LIMIT", 422,
+				"допускается не более 1 видео в галерее варианта")
+		}
+	}
+
 	key := storage.BuildKey("variants", fmt.Sprintf("%d", id), filename)
 	url, err := s.s3.PresignPut(ctx, key, ct)
 	if err != nil { return nil, apperror.Newf("S3_ERROR", 502, "could not generate upload URL") }
@@ -106,14 +147,35 @@ func (s *Service) PresignImage(ctx context.Context, id int64, filename, ct strin
 func (s *Service) ConfirmImage(ctx context.Context, variantID int64, req dto.ConfirmImageRequest) (*dto.ImageResponse, error) {
 	if s.s3 == nil { return nil, apperror.Newf("S3_DISABLED", 503, "S3 not configured") }
 	if _, err := s.repo.FindByID(ctx, variantID); err != nil { return nil, err }
+
+	// Determine media type (from explicit field or auto-detect from s3_key)
+	mt := req.MediaType
+	if mt == "" { mt = detectMediaType("", req.OriginalName) }
+
+	// Double-check limits on confirm (prevent race between presign and confirm)
 	count, err := s.repo.CountImages(ctx, variantID)
 	if err != nil { return nil, err }
+	if count >= maxGalleryItems {
+		return nil, apperror.Newf("GALLERY_FULL", 422,
+			fmt.Sprintf("максимум %d элементов в галерее", maxGalleryItems))
+	}
+	if mt == domain.VariantMediaVideo {
+		videoCount, err := s.repo.CountVideos(ctx, variantID)
+		if err != nil { return nil, err }
+		if videoCount >= maxVideos {
+			return nil, apperror.Newf("VIDEO_LIMIT", 422, "допускается не более 1 видео")
+		}
+	}
+
 	img := &domain.VariantImage{
 		VariantID: variantID, URL: s.s3.PublicURL(req.S3Key),
-		S3Key: req.S3Key, SortOrder: int(count),
+		S3Key: req.S3Key, MediaType: mt, SortOrder: int(count),
 	}
 	if err = s.repo.AddImage(ctx, img); err != nil { return nil, err }
-	resp := dto.ImageResponse{ID: img.ID, URL: img.URL, S3Key: img.S3Key, SortOrder: img.SortOrder, CreatedAt: img.CreatedAt}
+	resp := dto.ImageResponse{
+		ID: img.ID, URL: img.URL, S3Key: img.S3Key,
+		MediaType: img.MediaType, SortOrder: img.SortOrder, CreatedAt: img.CreatedAt,
+	}
 	return &resp, nil
 }
 

@@ -39,6 +39,7 @@ type S3Config struct {
 	Bucket    string `mapstructure:"bucket"`
 	Endpoint  string `mapstructure:"endpoint"`
 	CDNBase   string `mapstructure:"cdn_base"`
+	CDNToken  string `mapstructure:"cdn_token"`
 	Region    string `mapstructure:"region"`
 	AccessKey string `mapstructure:"access_key"`
 	SecretKey string `mapstructure:"secret_key"`
@@ -72,6 +73,7 @@ func Load() (*Config, error) {
 	_ = viper.BindEnv("s3.bucket", "S3_BUCKET")
 	_ = viper.BindEnv("s3.endpoint", "S3_ENDPOINT")
 	_ = viper.BindEnv("s3.cdn_base", "S3_CDN_BASE")
+	_ = viper.BindEnv("s3.cdn_token", "S3_CDN_TOKEN")
 	_ = viper.BindEnv("telegram.bot_token", "TG_BOT_TOKEN")
 	_ = viper.BindEnv("telegram.admin_chat_id", "TG_ADMIN_CHAT_ID")
 

@@ -22,6 +22,7 @@ type svc interface {
 	Reorder(ctx context.Context, req dto.ReorderRequest) error
 	PresignCover(ctx context.Context, id int64, filename, contentType string) (*dto.PresignResponse, error)
 	ConfirmCover(ctx context.Context, id int64, s3Key string) error
+	DeleteCover(ctx context.Context, id int64) error
 }
 
 type Handler struct{ svc svc }
@@ -178,6 +179,18 @@ func (h *Handler) ConfirmCover(c *gin.Context) {
 		return
 	}
 	if err := h.svc.ConfirmCover(c.Request.Context(), id, body.S3Key); err != nil {
+		middleware.Err(c, err)
+		return
+	}
+	middleware.NoContent(c)
+}
+
+func (h *Handler) DeleteCover(c *gin.Context) {
+	id, ok := httputil.ParseID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteCover(c.Request.Context(), id); err != nil {
 		middleware.Err(c, err)
 		return
 	}

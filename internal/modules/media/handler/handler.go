@@ -13,7 +13,7 @@ import (
 )
 
 type svc interface {
-	List(ctx context.Context, mediaType string, p pagination.CursorPage) (pagination.PageResult[dto.MediaResponse], error)
+	List(ctx context.Context, mediaType, folder string, p pagination.CursorPage) (pagination.PageResult[dto.MediaResponse], error)
 	Presign(ctx context.Context, req dto.PresignRequest, adminID string) (*dto.PresignResponse, error)
 	Confirm(ctx context.Context, req dto.ConfirmRequest, adminID string) (*dto.MediaResponse, error)
 	Delete(ctx context.Context, id int64) error
@@ -28,7 +28,8 @@ func ve(err error) error {
 
 func (h *Handler) List(c *gin.Context) {
 	var p pagination.CursorPage; _ = c.ShouldBindQuery(&p)
-	result, err := h.svc.List(c.Request.Context(), c.Query("type"), p)
+	// folder param: "media", "collections", "products", "variants" — maps to s3_key prefix
+	result, err := h.svc.List(c.Request.Context(), c.Query("type"), c.Query("folder"), p)
 	if err != nil { middleware.Err(c, err); return }
 	middleware.Paginated(c, result.Data, result.Cursor, result.HasMore, result.Limit)
 }

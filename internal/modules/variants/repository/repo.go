@@ -91,7 +91,15 @@ func (r *Repository) ReorderImages(ctx context.Context, ids []int64) error {
 	})
 }
 
+// CountImages returns total images for a variant
 func (r *Repository) CountImages(ctx context.Context, variantID int64) (int64, error) {
 	var count int64
 	return count, r.db.WithContext(ctx).Model(&domain.VariantImage{}).Where("variant_id = ?", variantID).Count(&count).Error
+}
+
+// CountVideos returns the number of VIDEO-type images for a variant
+func (r *Repository) CountVideos(ctx context.Context, variantID int64) (int64, error) {
+	var count int64
+	return count, r.db.WithContext(ctx).Model(&domain.VariantImage{}).
+		Where("variant_id = ? AND media_type = ?", variantID, domain.VariantMediaVideo).Count(&count).Error
 }

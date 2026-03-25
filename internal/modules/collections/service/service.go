@@ -23,6 +23,7 @@ type repo interface {
 	SoftDelete(ctx context.Context, id int64) error
 	Reorder(ctx context.Context, ids []int64) error
 	UpdateCover(ctx context.Context, id int64, url, s3Key string) error
+	ClearCover(ctx context.Context, id int64) error
 }
 
 type Service struct{ repo repo; s3 *storage.Client }
@@ -131,4 +132,13 @@ func (s *Service) ConfirmCover(ctx context.Context, id int64, s3Key string) erro
 	if _, err := s.repo.FindByID(ctx, id); err != nil { return err }
 	publicURL := s.s3.PublicURL(s3Key)
 	return s.repo.UpdateCover(ctx, id, publicURL, s3Key)
+}
+
+func (s *Service) DeleteCover(ctx context.Context, id int64) error {
+	c, err := s.repo.FindByID(ctx, id)
+	if err != nil { return err }
+	if c.CoverS3Key != nil && s.s3 != nil {
+		_ = s.s3.DeleteObject(ctx, *c.CoverS3Key)
+	}
+	return s.repo.ClearCover(ctx, id)
 }

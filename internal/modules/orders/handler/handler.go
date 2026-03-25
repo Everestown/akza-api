@@ -17,6 +17,7 @@ type svc interface {
 	GetByID(ctx context.Context, id int64) (*dto.OrderResponse, error)
 	Create(ctx context.Context, req dto.CreateOrderRequest) (*dto.OrderResponse, error)
 	UpdateStatus(ctx context.Context, id int64, req dto.UpdateStatusRequest) (*dto.OrderResponse, error)
+	Stats(ctx context.Context) (*dto.OrderStats, error)
 }
 
 type Handler struct{ svc svc }
@@ -55,4 +56,10 @@ func (h *Handler) UpdateStatus(c *gin.Context) {
 	o, err := h.svc.UpdateStatus(c.Request.Context(), id, req)
 	if err != nil { middleware.Err(c, err); return }
 	middleware.OK(c, o)
+}
+
+func (h *Handler) Stats(c *gin.Context) {
+	stats, err := h.svc.Stats(c.Request.Context())
+	if err != nil { middleware.Err(c, err); return }
+	middleware.OK(c, stats)
 }

@@ -23,6 +23,7 @@ type repo interface {
 	SoftDelete(ctx context.Context, id int64) error
 	Reorder(ctx context.Context, ids []int64) error
 	UpdateCover(ctx context.Context, id int64, url, s3Key string) error
+	ClearCover(ctx context.Context, id int64) error
 	SetPublished(ctx context.Context, id int64, published bool) error
 }
 
@@ -111,4 +112,13 @@ func (s *Service) ConfirmCover(ctx context.Context, id int64, s3Key string) erro
 	if s.s3 == nil { return apperror.Newf("S3_DISABLED", 503, "S3 not configured") }
 	if _, err := s.repo.FindByID(ctx, id); err != nil { return err }
 	return s.repo.UpdateCover(ctx, id, s.s3.PublicURL(s3Key), s3Key)
+}
+
+func (s *Service) DeleteCover(ctx context.Context, id int64) error {
+	p, err := s.repo.FindByID(ctx, id)
+	if err != nil { return err }
+	if p.CoverS3Key != nil && s.s3 != nil {
+		_ = s.s3.DeleteObject(ctx, *p.CoverS3Key)
+	}
+	return s.repo.ClearCover(ctx, id)
 }

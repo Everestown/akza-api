@@ -16,11 +16,13 @@ type PresignResponse struct {
 }
 
 type ConfirmRequest struct {
-	S3Key        string           `json:"s3_key"         binding:"required"`
-	Type         domain.MediaType `json:"type"           binding:"required"`
+	S3Key        string           `json:"s3_key"    binding:"required"`
+	Type         domain.MediaType `json:"type"      binding:"required"`
 	OriginalName string           `json:"original_name"`
 	SizeBytes    *int64           `json:"size_bytes"`
 	MimeType     string           `json:"mime_type"`
+	// Context: "site" for site content uploads (different size limits)
+	Context      string           `json:"context"`
 }
 
 type MediaResponse struct {
@@ -37,6 +39,7 @@ type MediaResponse struct {
 func FromDomain(a *domain.MediaAsset) MediaResponse {
 	return MediaResponse{
 		ID: a.ID, S3Key: a.S3Key, URL: a.URL, Type: a.Type,
-		OriginalName: a.OriginalName, SizeBytes: a.SizeBytes, MimeType: a.MimeType, CreatedAt: a.CreatedAt,
+		OriginalName: a.OriginalName, SizeBytes: a.SizeBytes,
+		MimeType: a.MimeType, CreatedAt: a.CreatedAt,
 	}
 }

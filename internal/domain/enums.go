@@ -51,12 +51,13 @@ const (
 	SectionAbout    PageSection = "ABOUT"
 	SectionContacts PageSection = "CONTACTS"
 	SectionFooter   PageSection = "FOOTER"
-	SectionHeader   PageSection = "HEADER"
+	SectionHeader     PageSection = "HEADER"
+	SectionDictionary PageSection = "DICTIONARY"
 )
 
 func (s PageSection) IsValid() bool {
 	switch s {
-	case SectionHero, SectionAbout, SectionContacts, SectionFooter, SectionHeader:
+	case SectionHero, SectionAbout, SectionContacts, SectionFooter, SectionHeader, SectionDictionary:
 		return true
 	}
 	return false

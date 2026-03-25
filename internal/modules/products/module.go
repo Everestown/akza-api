@@ -38,4 +38,5 @@ func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
 	p.DELETE("/:id", m.handler.Delete)
 	p.POST("/:id/cover/presign", m.handler.PresignCover)
 	p.POST("/:id/cover/confirm", m.handler.ConfirmCover)
+	p.DELETE("/:id/cover", m.handler.DeleteCover)
 }

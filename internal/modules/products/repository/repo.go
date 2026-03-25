@@ -88,3 +88,8 @@ func (r *Repository) UpdateCover(ctx context.Context, id int64, url, s3Key strin
 func (r *Repository) SetPublished(ctx context.Context, id int64, published bool) error {
 	return r.db.WithContext(ctx).Model(&domain.Product{}).Where("id = ?", id).Update("is_published", published).Error
 }
+
+func (r *Repository) ClearCover(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Model(&domain.Product{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"cover_url": nil, "cover_s3_key": nil}).Error
+}

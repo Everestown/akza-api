@@ -13,10 +13,13 @@ import (
 type Repository struct{ db *gorm.DB }
 func New(db *gorm.DB) *Repository { return &Repository{db: db} }
 
-func (r *Repository) List(ctx context.Context, mediaType string, p pagination.CursorPage) ([]domain.MediaAsset, error) {
+// List returns paginated media assets, optionally filtered by type and S3 folder prefix.
+// folder maps to the first segment of s3_key (e.g. "media", "collections", "variants").
+func (r *Repository) List(ctx context.Context, mediaType, folder string, p pagination.CursorPage) ([]domain.MediaAsset, error) {
 	limit := p.GetLimit()
 	q := r.db.WithContext(ctx).Order("created_at DESC").Limit(limit + 1)
 	if mediaType != "" { q = q.Where("type = ?", mediaType) }
+	if folder != "" { q = q.Where("s3_key LIKE ?", folder+"/%") }
 	if p.Cursor != "" {
 		id, createdAt, err := pagination.DecodeCursor(p.Cursor)
 		if err == nil { q = q.Where("(created_at < ? OR (created_at = ? AND id < ?))", createdAt, createdAt, id) }

@@ -40,4 +40,5 @@ func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
 	c.PATCH("/reorder", m.handler.Reorder)
 	c.POST("/:id/cover/presign", m.handler.PresignCover)
 	c.POST("/:id/cover/confirm", m.handler.ConfirmCover)
+	c.DELETE("/:id/cover", m.handler.DeleteCover)
 }

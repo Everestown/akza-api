@@ -17,24 +17,42 @@ type UpdateStatusRequest struct {
 	Status domain.OrderStatus `json:"status" binding:"required"`
 }
 
+// VariantShort — variant info embedded in order response.
+// Includes product and collection slugs so the frontend can build the full client URL:
+// /collections/{collection_slug}/{product_slug}/{variant_slug}
 type VariantShort struct {
-	ID   int64  `json:"id"`
-	Slug string `json:"slug"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	ProductSlug    string `json:"product_slug"`
+	CollectionSlug string `json:"collection_slug"`
 }
 
 type OrderResponse struct {
-	ID               int64              `json:"id"`
-	VariantID        int64              `json:"variant_id"`
-	Variant          *VariantShort      `json:"variant,omitempty"`
-	CustomerName     string             `json:"customer_name"`
-	TelegramUsername string             `json:"telegram_username"`
-	Phone            *string            `json:"phone"`
-	Comment          *string            `json:"comment"`
-	Status           domain.OrderStatus `json:"status"`
-	TgNotifiedAt     *time.Time         `json:"tg_notified_at"`
+	ID               int64                `json:"id"`
+	VariantID        int64                `json:"variant_id"`
+	Variant          *VariantShort        `json:"variant,omitempty"`
+	CustomerName     string               `json:"customer_name"`
+	TelegramUsername string               `json:"telegram_username"`
+	Phone            *string              `json:"phone"`
+	Comment          *string              `json:"comment"`
+	Status           domain.OrderStatus   `json:"status"`
+	TgNotifiedAt     *time.Time           `json:"tg_notified_at"`
 	AllowedNext      []domain.OrderStatus `json:"allowed_next"`
-	CreatedAt        time.Time          `json:"created_at"`
-	UpdatedAt        time.Time          `json:"updated_at"`
+	CreatedAt        time.Time            `json:"created_at"`
+	UpdatedAt        time.Time            `json:"updated_at"`
+}
+
+// OrderStats — response for GET /admin/orders/stats
+type OrderStats struct {
+	Total     int64            `json:"total"`
+	ByStatus  map[string]int64 `json:"by_status"`
+	// Convenience fields
+	New       int64 `json:"new"`
+	Contacted int64 `json:"contacted"`
+	Confirmed int64 `json:"confirmed"`
+	Cancelled int64 `json:"cancelled"`
+	Completed int64 `json:"completed"`
 }
 
 func FromDomain(o *domain.Order) OrderResponse {
@@ -47,7 +65,19 @@ func FromDomain(o *domain.Order) OrderResponse {
 		CreatedAt: o.CreatedAt, UpdatedAt: o.UpdatedAt,
 	}
 	if o.Variant.ID != 0 {
-		resp.Variant = &VariantShort{ID: o.Variant.ID, Slug: o.Variant.Slug}
+		v := &VariantShort{
+			ID:   o.Variant.ID,
+			Name: o.Variant.Name,
+			Slug: o.Variant.Slug,
+		}
+		// Set product and collection slugs from preloaded relations
+		if o.Variant.Product.ID != 0 {
+			v.ProductSlug = o.Variant.Product.Slug
+			if o.Variant.Product.Collection.ID != 0 {
+				v.CollectionSlug = o.Variant.Product.Collection.Slug
+			}
+		}
+		resp.Variant = v
 	}
 	return resp
 }

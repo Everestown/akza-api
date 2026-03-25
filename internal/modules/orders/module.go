@@ -24,5 +24,6 @@ func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
 	o := admin.Group("/orders")
 	o.GET("", m.handler.List)
 	o.GET("/:id", m.handler.GetByID)
+	o.GET("/stats", m.handler.Stats)
 	o.PATCH("/:id/status", m.handler.UpdateStatus)
 }

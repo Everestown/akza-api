@@ -5,6 +5,7 @@ import "time"
 type ProductVariant struct {
 	ID          int64      `gorm:"primaryKey;autoIncrement"`
 	ProductID   int64      `gorm:"not null"`
+	Name        string     `gorm:"type:varchar(100)"` // display name shown on client
 	Slug        string     `gorm:"uniqueIndex;not null"`
 	Attributes  JSONB      `gorm:"type:jsonb;not null;default:'{}'"`
 	IsPublished bool       `gorm:"not null;default:false"`

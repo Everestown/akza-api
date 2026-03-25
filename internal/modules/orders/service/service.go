@@ -6,6 +6,7 @@ import (
 
 	"github.com/akza/akza-api/internal/domain"
 	"github.com/akza/akza-api/internal/modules/orders/dto"
+	"github.com/akza/akza-api/internal/modules/orders/repository"
 	"github.com/akza/akza-api/internal/pkg/apperror"
 	"github.com/akza/akza-api/internal/pkg/pagination"
 	"github.com/akza/akza-api/internal/pkg/telegram"
@@ -17,6 +18,7 @@ type repo interface {
 	FindVariant(ctx context.Context, variantID int64) (*domain.ProductVariant, error)
 	Create(ctx context.Context, o *domain.Order) error
 	Update(ctx context.Context, o *domain.Order) error
+	Stats(ctx context.Context) ([]repository.StatusCount, error)
 }
 
 type Service struct{ repo repo; tg *telegram.Bot; siteBase string }
@@ -47,12 +49,7 @@ func (s *Service) Create(ctx context.Context, req dto.CreateOrderRequest) (*dto.
 		Status: domain.OrderNew,
 	}
 	if err = s.repo.Create(ctx, order); err != nil { return nil, err }
-	// Async Telegram notification — silent fail
-	go func() {
-		s.tg.SendOrderNotification(order, variant, s.siteBase)
-		order.TgNotifiedAt = nil // will be set by separate update
-		_ = s.repo.Update(context.Background(), order)
-	}()
+	go func() { s.tg.SendOrderNotification(order, variant, s.siteBase) }()
 	order.Variant = *variant
 	resp := dto.FromDomain(order); return &resp, nil
 }
@@ -67,4 +64,24 @@ func (s *Service) UpdateStatus(ctx context.Context, id int64, req dto.UpdateStat
 	o.Status = req.Status
 	if err = s.repo.Update(ctx, o); err != nil { return nil, err }
 	resp := dto.FromDomain(o); return &resp, nil
+}
+
+func (s *Service) Stats(ctx context.Context) (*dto.OrderStats, error) {
+	counts, err := s.repo.Stats(ctx)
+	if err != nil { return nil, err }
+	stats := &dto.OrderStats{
+		ByStatus: make(map[string]int64),
+	}
+	for _, c := range counts {
+		stats.ByStatus[c.Status] = c.Count
+		stats.Total += c.Count
+		switch c.Status {
+		case "NEW":       stats.New = c.Count
+		case "CONTACTED": stats.Contacted = c.Count
+		case "CONFIRMED": stats.Confirmed = c.Count
+		case "CANCELLED": stats.Cancelled = c.Count
+		case "COMPLETED": stats.Completed = c.Count
+		}
+	}
+	return stats, nil
 }

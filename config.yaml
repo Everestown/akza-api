@@ -15,7 +15,8 @@ logger:
 s3:
   bucket: "akza-media"
   endpoint: "https://storage.yandexcloud.net"
-  cdn_base: "https://storage.yandexcloud.net/akza-media"
+  cdn_base: "https://cdn.akza.store"
+  cdn_token: "d28eaa1a3044bc11f21339c4dfb42a7b"
   region: "ru-central1"
   access_key: "YCAJEbr8dMkZidI94oWorUDal"
   secret_key: "YCNZsdis3VK2D2pU6fWB7VMxp6r4LeWJXWDv1_YX"
@@ -28,5 +29,5 @@ cors:
   allowed_origins:
     - "http://localhost:5173"
     - "http://localhost:5174"
-    - "https://akza.ru"
-    - "https://admin.akza.ru"
+    - "https://akza.store"
+    - "https://admin.akza.store"

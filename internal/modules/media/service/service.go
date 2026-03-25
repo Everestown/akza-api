@@ -13,16 +13,23 @@ import (
 	"github.com/akza/akza-api/internal/pkg/storage"
 )
 
-// Max file sizes in bytes
 const (
-	maxImageBytes = 40 * 1024 * 1024  // 40 MB
-	minImageBytes = 5 * 1024 * 1024   // 5 MB
-	maxVideoBytes = 100 * 1024 * 1024 // 100 MB
-	minVideoBytes = 5 * 1024 * 1024   // 5 MB
+	maxImageBytes     = 50 * 1024 * 1024
+	minImageBytes     = 50 * 1024
+	maxVideoBytes     = 100 * 1024 * 1024
+	minVideoBytes     = 5 * 1024 * 1024
+	maxSiteImageBytes = 100 * 1024 * 1024
+	maxSiteVideoBytes = 200 * 1024 * 1024
+)
+
+type MediaContext string
+const (
+	ContextGallery MediaContext = "gallery"
+	ContextSite    MediaContext = "site"
 )
 
 type repo interface {
-	List(ctx context.Context, mediaType string, p pagination.CursorPage) ([]domain.MediaAsset, error)
+	List(ctx context.Context, mediaType, folder string, p pagination.CursorPage) ([]domain.MediaAsset, error)
 	FindByID(ctx context.Context, id int64) (*domain.MediaAsset, error)
 	Create(ctx context.Context, a *domain.MediaAsset) error
 	Delete(ctx context.Context, id int64) error
@@ -31,8 +38,8 @@ type repo interface {
 type Service struct{ repo repo; s3 *storage.Client }
 func New(repo repo, s3 *storage.Client) *Service { return &Service{repo: repo, s3: s3} }
 
-func (s *Service) List(ctx context.Context, mediaType string, p pagination.CursorPage) (pagination.PageResult[dto.MediaResponse], error) {
-	items, err := s.repo.List(ctx, mediaType, p)
+func (s *Service) List(ctx context.Context, mediaType, folder string, p pagination.CursorPage) (pagination.PageResult[dto.MediaResponse], error) {
+	items, err := s.repo.List(ctx, mediaType, folder, p)
 	if err != nil { return pagination.PageResult[dto.MediaResponse]{}, err }
 	responses := make([]dto.MediaResponse, len(items))
 	for i, a := range items { responses[i] = dto.FromDomain(&a) }
@@ -41,10 +48,24 @@ func (s *Service) List(ctx context.Context, mediaType string, p pagination.Curso
 	}), nil
 }
 
+func validateSize(mediaType domain.MediaType, sizeBytes int64, ctx2 MediaContext) error {
+	switch mediaType {
+	case domain.MediaImage:
+		if sizeBytes < minImageBytes { return apperror.Newf("FILE_TOO_SMALL", 422, fmt.Sprintf("изображение слишком маленькое, минимум %d KB", minImageBytes/1024)) }
+		maxImg := int64(maxImageBytes)
+		if ctx2 == ContextSite { maxImg = maxSiteImageBytes }
+		if sizeBytes > maxImg { return apperror.Newf("FILE_TOO_LARGE", 422, fmt.Sprintf("изображение слишком большое, максимум %d MB", maxImg/1024/1024)) }
+	case domain.MediaVideo:
+		if sizeBytes < minVideoBytes { return apperror.Newf("FILE_TOO_SMALL", 422, fmt.Sprintf("видео слишком маленькое, минимум %d MB", minVideoBytes/1024/1024)) }
+		maxVid := int64(maxVideoBytes)
+		if ctx2 == ContextSite { maxVid = maxSiteVideoBytes }
+		if sizeBytes > maxVid { return apperror.Newf("FILE_TOO_LARGE", 422, fmt.Sprintf("видео слишком большое, максимум %d MB", maxVid/1024/1024)) }
+	}
+	return nil
+}
+
 func (s *Service) Presign(ctx context.Context, req dto.PresignRequest, adminIDStr string) (*dto.PresignResponse, error) {
 	if s.s3 == nil { return nil, apperror.Newf("S3_DISABLED", 503, "S3 not configured") }
-	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
-	_ = adminID
 	ts := strconv.FormatInt(time.Now().UnixNano(), 36)
 	key := storage.BuildKey("media", ts, req.Filename)
 	url, err := s.s3.PresignPut(ctx, key, req.ContentType)
@@ -54,16 +75,10 @@ func (s *Service) Presign(ctx context.Context, req dto.PresignRequest, adminIDSt
 
 func (s *Service) Confirm(ctx context.Context, req dto.ConfirmRequest, adminIDStr string) (*dto.MediaResponse, error) {
 	if s.s3 == nil { return nil, apperror.Newf("S3_DISABLED", 503, "S3 not configured") }
-	// Validate file size if provided
-	if req.SizeBytes != nil {
-		switch req.Type {
-		case domain.MediaImage:
-			if *req.SizeBytes < minImageBytes { return nil, apperror.Newf("FILE_TOO_SMALL", 422, fmt.Sprintf("image must be at least %d MB", minImageBytes/1024/1024)) }
-			if *req.SizeBytes > maxImageBytes { return nil, apperror.Newf("FILE_TOO_LARGE", 422, fmt.Sprintf("image cannot exceed %d MB", maxImageBytes/1024/1024)) }
-		case domain.MediaVideo:
-			if *req.SizeBytes < minVideoBytes { return nil, apperror.Newf("FILE_TOO_SMALL", 422, fmt.Sprintf("video must be at least %d MB", minVideoBytes/1024/1024)) }
-			if *req.SizeBytes > maxVideoBytes { return nil, apperror.Newf("FILE_TOO_LARGE", 422, fmt.Sprintf("video cannot exceed %d MB", maxVideoBytes/1024/1024)) }
-		}
+	ctx2 := ContextGallery
+	if req.Context == "site" { ctx2 = ContextSite }
+	if req.SizeBytes != nil && *req.SizeBytes > 0 {
+		if err := validateSize(req.Type, *req.SizeBytes, ctx2); err != nil { return nil, err }
 	}
 	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
 	originalName := req.OriginalName
