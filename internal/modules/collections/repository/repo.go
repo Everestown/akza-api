@@ -111,3 +111,36 @@ func (r *Repository) ClearCover(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Model(&domain.Collection{}).Where("id = ?", id).
 		Updates(map[string]interface{}{"cover_url": nil, "cover_s3_key": nil}).Error
 }
+
+// Restore removes the soft-delete mark from a collection.
+func (r *Repository) Restore(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Model(&domain.Collection{}).
+		Where("id = ?", id).Update("deleted_at", nil).Error
+}
+
+// FindDeletedByID finds a soft-deleted collection by ID.
+func (r *Repository) FindDeletedByID(ctx context.Context, id int64) (*domain.Collection, error) {
+	var c domain.Collection
+	err := r.db.WithContext(ctx).Unscoped().Where("id = ? AND deleted_at IS NOT NULL", id).First(&c).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) { return nil, apperror.NotFound("collection") }
+	return &c, err
+}
+
+// ListDeleted returns recently soft-deleted collections (last 15 minutes).
+func (r *Repository) ListDeleted(ctx context.Context) ([]domain.Collection, error) {
+	since := time.Now().Add(-15 * time.Minute)
+	var items []domain.Collection
+	err := r.db.WithContext(ctx).Unscoped().
+		Where("deleted_at IS NOT NULL AND deleted_at >= ?", since).
+		Order("deleted_at DESC").Find(&items).Error
+	return items, err
+}
+
+// PublishScheduledDue sets status=PUBLISHED for all SCHEDULED collections where scheduled_at <= now().
+// Returns the number of rows updated.
+func (r *Repository) PublishScheduledDue(ctx context.Context) (int64, error) {
+	result := r.db.WithContext(ctx).Model(&domain.Collection{}).
+		Where("status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= ? AND deleted_at IS NULL", time.Now()).
+		Update("status", domain.CollectionPublished)
+	return result.RowsAffected, result.Error
+}

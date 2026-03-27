@@ -14,7 +14,6 @@ type Module struct {
 }
 
 func New() *Module { return &Module{} }
-
 func (m *Module) GetName() string { return "collections" }
 
 func (m *Module) Init(deps *module.Deps) error {
@@ -32,12 +31,14 @@ func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
 	// Admin
 	c := admin.Group("/collections")
 	c.GET("", m.handler.ListAll)
+	c.GET("/deleted", m.handler.ListDeleted)    // GET /admin/collections/deleted
 	c.POST("", m.handler.Create)
+	c.PATCH("/reorder", m.handler.Reorder)
 	c.GET("/:id", m.handler.GetByID)
 	c.PUT("/:id", m.handler.Update)
 	c.PATCH("/:id/status", m.handler.UpdateStatus)
 	c.DELETE("/:id", m.handler.Delete)
-	c.PATCH("/reorder", m.handler.Reorder)
+	c.PATCH("/:id/restore", m.handler.Restore)  // PATCH /admin/collections/:id/restore
 	c.POST("/:id/cover/presign", m.handler.PresignCover)
 	c.POST("/:id/cover/confirm", m.handler.ConfirmCover)
 	c.DELETE("/:id/cover", m.handler.DeleteCover)

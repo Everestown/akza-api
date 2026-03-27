@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/akza/akza-api/internal/domain"
 	"github.com/akza/akza-api/internal/modules/products/dto"
@@ -17,6 +18,8 @@ type repo interface {
 	ListByCollectionSlug(ctx context.Context, collectionSlug string, onlyPublished bool, p pagination.CursorPage) ([]domain.Product, error)
 	FindBySlug(ctx context.Context, slug string) (*domain.Product, error)
 	FindByID(ctx context.Context, id int64) (*domain.Product, error)
+	FindDeletedByID(ctx context.Context, id int64) (*domain.Product, error)
+	Restore(ctx context.Context, id int64) error
 	SlugExists(ctx context.Context, slug string) bool
 	Create(ctx context.Context, p *domain.Product) error
 	Update(ctx context.Context, p *domain.Product) error
@@ -121,4 +124,15 @@ func (s *Service) DeleteCover(ctx context.Context, id int64) error {
 		_ = s.s3.DeleteObject(ctx, *p.CoverS3Key)
 	}
 	return s.repo.ClearCover(ctx, id)
+}
+
+func (s *Service) Restore(ctx context.Context, id int64) (*dto.ProductResponse, error) {
+	p, err := s.repo.FindDeletedByID(ctx, id)
+	if err != nil { return nil, err }
+	if p.DeletedAt != nil && time.Since(*p.DeletedAt) > 15*time.Minute {
+		return nil, apperror.Newf("RESTORE_EXPIRED", 422, "restore window (15 min) has expired")
+	}
+	if err = s.repo.Restore(ctx, id); err != nil { return nil, err }
+	p.DeletedAt = nil
+	resp := dto.FromDomain(p); return &resp, nil
 }

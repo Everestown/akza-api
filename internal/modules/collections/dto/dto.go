@@ -8,23 +8,42 @@ import (
 	"github.com/akza/akza-api/internal/domain"
 )
 
-// FlexTime parses time.Time from HTML datetime-local and RFC3339.
+// FlexTime parses time.Time from multiple formats sent by frontend.
+// Supports RFC3339 with timezone offset (e.g. "+03:00"), RFC3339Nano, and bare datetime strings.
 type FlexTime struct{ T *time.Time }
 
 func (f *FlexTime) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil { return nil }
+	s = strings.TrimSpace(s)
 	if s == "" { return nil }
-	formats := []string{
-		time.RFC3339, "2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02",
+
+	// Formats with explicit timezone — parse as-is (time.Parse respects the offset)
+	tzFormats := []string{
+		time.RFC3339Nano, // "2026-03-20T18:30:00.000Z" or "...+03:00"
+		time.RFC3339,     // "2026-03-20T18:30:00Z"
 	}
-	clean := strings.TrimRight(s, "Z")
-	for _, fmt := range formats {
-		if t, err := time.ParseInLocation(fmt, clean, time.UTC); err == nil {
-			f.T = &t; return nil
+	for _, fmt := range tzFormats {
+		if t, err := time.Parse(fmt, s); err == nil {
+			// Normalize to UTC for consistent storage
+			utc := t.UTC()
+			f.T = &utc
+			return nil
 		}
 	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil { f.T = &t }
+
+	// Formats without timezone — treat as UTC (admin should send with offset for local time)
+	noTzFormats := []string{
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"2006-01-02",
+	}
+	for _, fmt := range noTzFormats {
+		if t, err := time.ParseInLocation(fmt, s, time.UTC); err == nil {
+			f.T = &t
+			return nil
+		}
+	}
 	return nil
 }
 
@@ -69,8 +88,6 @@ type CollectionResponse struct {
 	CoverURL    *string                 `json:"cover_url"`
 	Status      domain.CollectionStatus `json:"status"`
 	ScheduledAt *time.Time              `json:"scheduled_at"`
-	// IsPending is true when status=SCHEDULED and time has NOT yet come.
-	// The client shows a teaser (locked) state.
 	IsPending   bool                    `json:"is_pending"`
 	SortOrder   int                     `json:"sort_order"`
 	CreatedAt   time.Time               `json:"created_at"`

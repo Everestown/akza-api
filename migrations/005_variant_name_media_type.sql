@@ -1,9 +1,9 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- Add display name to product_variants
+-- Add display name to product_variants (max 100 chars to match domain model)
 ALTER TABLE product_variants
-  ADD COLUMN IF NOT EXISTS name VARCHAR(20) NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS name VARCHAR(100) NOT NULL DEFAULT '';
 
 -- Add media_type to variant_images (IMAGE or VIDEO)
 ALTER TABLE variant_images
@@ -11,8 +11,20 @@ ALTER TABLE variant_images
 
 -- Add check constraint to enforce valid values
 ALTER TABLE variant_images
-  ADD CONSTRAINT chk_variant_images_media_type
+  ADD CONSTRAINT IF NOT EXISTS chk_variant_images_media_type
   CHECK (media_type IN ('IMAGE', 'VIDEO'));
+
+-- If column existed with wrong size, fix it
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'product_variants' AND column_name = 'name'
+    AND character_maximum_length < 100
+  ) THEN
+    ALTER TABLE product_variants ALTER COLUMN name TYPE VARCHAR(100);
+  END IF;
+END$$;
 
 -- +goose StatementEnd
 

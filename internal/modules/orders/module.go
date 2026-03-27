@@ -23,7 +23,7 @@ func (m *Module) RegisterRoutes(public, admin *gin.RouterGroup) {
 	public.POST("/orders", m.handler.Create)
 	o := admin.Group("/orders")
 	o.GET("", m.handler.List)
+	o.GET("/stats", m.handler.Stats)   // MUST be before /:id to avoid routing conflict
 	o.GET("/:id", m.handler.GetByID)
-	o.GET("/stats", m.handler.Stats)
 	o.PATCH("/:id/status", m.handler.UpdateStatus)
 }

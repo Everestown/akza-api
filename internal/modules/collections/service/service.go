@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/akza/akza-api/internal/domain"
 	"github.com/akza/akza-api/internal/modules/collections/dto"
@@ -15,15 +16,20 @@ import (
 type repo interface {
 	ListPublicWithScheduled(ctx context.Context, p pagination.CursorPage) ([]domain.Collection, error)
 	ListAll(ctx context.Context, p pagination.CursorPage) ([]domain.Collection, error)
+	ListDeleted(ctx context.Context) ([]domain.Collection, error)
 	FindBySlug(ctx context.Context, slug string) (*domain.Collection, error)
 	FindByID(ctx context.Context, id int64) (*domain.Collection, error)
+	FindDeletedByID(ctx context.Context, id int64) (*domain.Collection, error)
 	SlugExists(ctx context.Context, slug string) bool
 	Create(ctx context.Context, c *domain.Collection) error
 	Update(ctx context.Context, c *domain.Collection) error
 	SoftDelete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
 	Reorder(ctx context.Context, ids []int64) error
 	UpdateCover(ctx context.Context, id int64, url, s3Key string) error
 	ClearCover(ctx context.Context, id int64) error
+	// For scheduler
+	PublishScheduledDue(ctx context.Context) (int64, error)
 }
 
 type Service struct{ repo repo; s3 *storage.Client }
@@ -37,7 +43,6 @@ func build(items []domain.Collection, limit int) pagination.PageResult[dto.Colle
 	})
 }
 
-// ListPublic returns PUBLISHED + SCHEDULED (for drop teasers on client).
 func (s *Service) ListPublic(ctx context.Context, p pagination.CursorPage) (pagination.PageResult[dto.CollectionResponse], error) {
 	items, err := s.repo.ListPublicWithScheduled(ctx, p)
 	if err != nil { return pagination.PageResult[dto.CollectionResponse]{}, err }
@@ -50,10 +55,17 @@ func (s *Service) ListAll(ctx context.Context, p pagination.CursorPage) (paginat
 	return build(items, p.GetLimit()), nil
 }
 
+func (s *Service) ListDeleted(ctx context.Context) ([]dto.CollectionResponse, error) {
+	items, err := s.repo.ListDeleted(ctx)
+	if err != nil { return nil, err }
+	out := make([]dto.CollectionResponse, len(items))
+	for i, c := range items { out[i] = dto.FromDomain(&c) }
+	return out, nil
+}
+
 func (s *Service) GetBySlug(ctx context.Context, sl string) (*dto.CollectionResponse, error) {
 	c, err := s.repo.FindBySlug(ctx, sl)
 	if err != nil { return nil, err }
-	// For public: visible = published OR scheduled-and-due
 	if !c.IsVisible() && !c.IsScheduledAndPending() { return nil, apperror.NotFound("collection") }
 	resp := dto.FromDomain(c)
 	return &resp, nil
@@ -114,6 +126,20 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 	return s.repo.SoftDelete(ctx, id)
 }
 
+// Restore un-deletes a collection within the 15-minute window.
+func (s *Service) Restore(ctx context.Context, id int64) (*dto.CollectionResponse, error) {
+	c, err := s.repo.FindDeletedByID(ctx, id)
+	if err != nil { return nil, err }
+	// Enforce 15-minute restore window
+	if c.DeletedAt != nil && time.Since(*c.DeletedAt) > 15*time.Minute {
+		return nil, apperror.Newf("RESTORE_EXPIRED", 422, "restore window (15 min) has expired")
+	}
+	if err = s.repo.Restore(ctx, id); err != nil { return nil, err }
+	c.DeletedAt = nil
+	resp := dto.FromDomain(c)
+	return &resp, nil
+}
+
 func (s *Service) Reorder(ctx context.Context, req dto.ReorderRequest) error {
 	return s.repo.Reorder(ctx, req.IDs)
 }
@@ -141,4 +167,10 @@ func (s *Service) DeleteCover(ctx context.Context, id int64) error {
 		_ = s.s3.DeleteObject(ctx, *c.CoverS3Key)
 	}
 	return s.repo.ClearCover(ctx, id)
+}
+
+// PublishScheduledDue transitions all due SCHEDULED collections to PUBLISHED.
+// Called by the scheduler goroutine.
+func (s *Service) PublishScheduledDue(ctx context.Context) (int64, error) {
+	return s.repo.PublishScheduledDue(ctx)
 }

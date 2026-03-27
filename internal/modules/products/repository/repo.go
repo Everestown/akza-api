@@ -93,3 +93,14 @@ func (r *Repository) ClearCover(ctx context.Context, id int64) error {
 	return r.db.WithContext(ctx).Model(&domain.Product{}).Where("id = ?", id).
 		Updates(map[string]interface{}{"cover_url": nil, "cover_s3_key": nil}).Error
 }
+
+func (r *Repository) FindDeletedByID(ctx context.Context, id int64) (*domain.Product, error) {
+	var p domain.Product
+	err := r.db.WithContext(ctx).Unscoped().Where("id = ? AND deleted_at IS NOT NULL", id).First(&p).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) { return nil, apperror.NotFound("product") }
+	return &p, err
+}
+
+func (r *Repository) Restore(ctx context.Context, id int64) error {
+	return r.db.WithContext(ctx).Model(&domain.Product{}).Where("id = ?", id).Update("deleted_at", nil).Error
+}

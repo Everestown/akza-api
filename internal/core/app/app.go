@@ -138,6 +138,22 @@ func (a *App) Run() error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	// Scheduler: every 60s auto-publish SCHEDULED collections whose scheduled_at <= now.
+	schedulerStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		a.runPublishScheduled() // run immediately on startup
+		for {
+			select {
+			case <-ticker.C:
+				a.runPublishScheduled()
+			case <-schedulerStop:
+				return
+			}
+		}
+	}()
+
 	errCh := make(chan error, 1)
 	go func() {
 		a.log.Info("server starting", zap.String("addr", a.cfg.Server.Address))
@@ -164,6 +180,21 @@ func (a *App) Run() error {
 	sqlDB, _ := a.db.DB()
 	_ = sqlDB.Close()
 
+	close(schedulerStop)
 	a.log.Info("server stopped")
 	return nil
+}
+
+// runPublishScheduled auto-publishes overdue SCHEDULED collections.
+func (a *App) runPublishScheduled() {
+	result := a.db.Exec(
+		"UPDATE collections SET status = 'PUBLISHED', updated_at = NOW() WHERE status = 'SCHEDULED' AND scheduled_at IS NOT NULL AND scheduled_at <= NOW() AND deleted_at IS NULL",
+	)
+	if result.Error != nil {
+		a.log.Error("scheduler: failed to publish scheduled collections", zap.Error(result.Error))
+		return
+	}
+	if result.RowsAffected > 0 {
+		a.log.Info("scheduler: published collections", zap.Int64("count", result.RowsAffected))
+	}
 }
